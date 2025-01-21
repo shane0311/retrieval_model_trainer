@@ -77,7 +77,6 @@ model.fit(
     weight_decay=WEIGHT_DECAY,
     max_grad_norm=MAX_GRAD_NORM,
     use_amp=USE_AMP,
-#    callback=CALLBACK,
     scheduler=SCHEDULER,
     optimizer_class=OPTIMIZER_CLASS,
     optimizer_params=OPTIMIZER_PARAMS,
@@ -88,5 +87,6 @@ model.fit(
     show_progress_bar=SHOW_PROGRESS_BAR,
     checkpoint_path=CHECKPOINT_PATH,
     checkpoint_save_steps=CHECKPOINT_SAVE_STEPS,
-    checkpoint_save_total_limit=CHECKPOINT_SAVE_TOTAL_LIMIT
+    checkpoint_save_total_limit=CHECKPOINT_SAVE_TOTAL_LIMIT,
+    #callback=CALLBACK
 )
