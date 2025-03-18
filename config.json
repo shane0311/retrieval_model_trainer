@@ -1,6 +1,7 @@
 {
     "model_name": "gte-small",
     "train_dataset": "./dataset/train_dataset.json",
+    "shuffle_train_data": true,
     "val_dataset": "./dataset/val_dataset.json",
     "batch_size": 64,
     "epochs": 1,
