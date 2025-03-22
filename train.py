@@ -1,8 +1,10 @@
 # train.py
 
 import torch
+import random
 from torch.utils.data import DataLoader
 from sentence_transformers import losses, evaluation
+from sentence_transformers import SentenceTransformerModelCardData
 from config import load_config
 
 # Import your separated load functions
@@ -10,84 +12,98 @@ from model_download import load_model
 from train_dataset_download import load_train_dataset
 from val_dataset_download import load_val_dataset
 
+from sentence_transformers import (
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments
+)
+from sentence_transformers.training_args import BatchSamplers
+
 def main():
     # 1. Load config
     config = load_config('config.json')
 
     MODEL_NAME = config['model_name']
     TRAIN_DATASET = config['train_dataset']
-    SHUFFLE_TRAIN_DATA = config.get('shuffle_train_data', True)
     VAL_DATASET = config['val_dataset']
-    BATCH_SIZE = config['batch_size']
+    TRAIN_BATCH_SIZE = config['train_batch_size']
+    EVAL_BATCH_SIZE = config['eval_batch_size']
     EPOCHS = config['epochs']
-    SAVE_BEST_MODEL = config['save_best_model']
-    USE_RECOMMENDED_WARMUP = config.get('use_recommended_warmup', True)
-    configured_warmup_steps = config.get('warmup_steps', 0)
+    WARMUP_STEPS = config.get('warmup_steps', -1)
+    WARMUP_RATIO = config.get('warmup_ratio', 0.1)
+    EVALUATION_STRATEGY = config['evaluation_strategy']
     EVALUATION_STEPS = config['evaluation_steps']
-    OPTIMIZER_CLASS = getattr(torch.optim, config['optimizer_class'])
+    OPTIMIZER_CLASS = config['optimizer_class']
     OPTIMIZER_PARAMS = config['optimizer_params']
     SCHEDULER = config['scheduler']
-    CHECKPOINT_PATH = config['checkpoint_path']
     CHECKPOINT_SAVE_STEPS = config['checkpoint_save_steps']
     CHECKPOINT_SAVE_TOTAL_LIMIT = config.get('checkpoint_save_total_limit', 5)
-    SHOW_PROGRESS_BAR = config['show_progress_bar']
+    LOGGING_STRATEGY = config['logging_strategy']
+    LOGGING_STEPS = config['logging_steps']
     OUTPUT_PATH = config['output_path']
-    STEPS_PER_EPOCH = config.get('steps_per_epoch', None)
+    MAX_STEPS = config.get('max_steps', -1)
     WEIGHT_DECAY = config.get('weight_decay', 0.0)
     MAX_GRAD_NORM = config.get('max_grad_norm', 1.0)
-    USE_AMP = config.get('use_amp', False)
 
     # 2. Load/Download Model
-    model = load_model(MODEL_NAME, device='cpu')  # or 'cuda' if you want GPU
+    model = load_model(model_name = MODEL_NAME, device = "cuda") if torch.cuda.is_available() else load_model(model_name = MODEL_NAME, device = "cpu")
 
     # 3. Load training dataset
     training_data = load_train_dataset(TRAIN_DATASET)
-    train_loader = DataLoader(
-        training_data, 
-        batch_size=BATCH_SIZE, 
-        shuffle=SHUFFLE_TRAIN_DATA
-    )
-
-    # 4. Determine warmup steps
-    if USE_RECOMMENDED_WARMUP:
-        WARMUP_STEPS = int(len(train_loader) * EPOCHS * 0.1)
-    else:
-        WARMUP_STEPS = configured_warmup_steps
 
     # 5. Load validation dataset
-    sentence1, sentence2, scores = load_val_dataset(VAL_DATASET)
+    eval_dataset = load_val_dataset(VAL_DATASET)
+    eval_sentence1 = eval_dataset["text1"]
+    eval_sentence2 = eval_dataset["text2"]
+    eval_scores    = eval_dataset["label"]
     evaluator = evaluation.BinaryClassificationEvaluator(
-        sentence1, 
-        sentence2, 
-        scores, 
+        eval_sentence1, 
+        eval_sentence2, 
+        eval_scores, 
         write_csv=True, 
         name="validation"
     )
+    evaluator(model)
 
     # 6. Define loss
     loss = losses.CachedMultipleNegativesRankingLoss(model=model, mini_batch_size=32)
 
     # 7. Train with model.fit
-    model.fit(
-        train_objectives=[(train_loader, loss)],
-        epochs=EPOCHS,
-        steps_per_epoch=STEPS_PER_EPOCH,
-        warmup_steps=WARMUP_STEPS,
-        weight_decay=WEIGHT_DECAY,
-        max_grad_norm=MAX_GRAD_NORM,
-        use_amp=USE_AMP,
-        scheduler=SCHEDULER,
-        optimizer_class=OPTIMIZER_CLASS,
-        optimizer_params=OPTIMIZER_PARAMS,
-        evaluator=evaluator,
-        evaluation_steps=EVALUATION_STEPS,
-        output_path=OUTPUT_PATH,
-        save_best_model=SAVE_BEST_MODEL,
-        show_progress_bar=SHOW_PROGRESS_BAR,
-        checkpoint_path=CHECKPOINT_PATH,
-        checkpoint_save_steps=CHECKPOINT_SAVE_STEPS,
-        checkpoint_save_total_limit=CHECKPOINT_SAVE_TOTAL_LIMIT
+    args = SentenceTransformerTrainingArguments(
+        output_dir = OUTPUT_PATH,
+        num_train_epochs = EPOCHS,
+        per_device_train_batch_size = TRAIN_BATCH_SIZE,
+        per_device_eval_batch_size = EVAL_BATCH_SIZE,
+        learning_rate = OPTIMIZER_PARAMS['lr'],
+        lr_scheduler_type = SCHEDULER,
+        optim = OPTIMIZER_CLASS,
+        weight_decay = WEIGHT_DECAY,
+        warmup_ratio = WARMUP_RATIO,
+        max_steps = MAX_STEPS,
+        max_grad_norm = MAX_GRAD_NORM,
+        eval_strategy = EVALUATION_STRATEGY,
+        eval_steps = EVALUATION_STEPS, 
+        save_strategy="steps",
+        save_steps = CHECKPOINT_SAVE_STEPS,
+        save_total_limit = CHECKPOINT_SAVE_TOTAL_LIMIT,
+        logging_strategy = LOGGING_STRATEGY,
+        logging_steps = LOGGING_STEPS,
+        logging_first_step = True,
+        run_name = MODEL_NAME
     )
+
+    if WARMUP_STEPS > 0:
+        args = args.set_lr_scheduler(name = SCHEDULER, max_steps = MAX_STEPS, warmup_steps = WARMUP_STEPS)
+        print(f"Using warmup steps: {WARMUP_STEPS}")
+
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=training_data,
+        eval_dataset=eval_dataset,
+        loss=loss,
+        evaluator=evaluator,
+    )
+    trainer.train()
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,7 @@
 import gradio as gr
 import json
+from train import main as train_main
+
 from dropdown_options import (
     model_dropdown_options,
     train_dataset_options,
@@ -18,24 +20,24 @@ def update_config(
     val_dataset_choice,
     val_dataset_custom,
     # Training params
-    batch_size,
+    train_batch_size,
+    eval_batch_size,
     epochs,
-    save_best_model,
-    use_recommended_warmup,
     warmup_steps,
+    warmup_ratio,
+    evaluation_strategies,
     evaluation_steps,
     optimizer_class,
     optimizer_params_lr,
     scheduler,
-    checkpoint_path,
     checkpoint_save_steps,
     checkpoint_save_total_limit,
-    show_progress_bar,
+    logging_strategies,
+    logging_steps,
     output_path,
-    steps_per_epoch,
+    max_steps,
     weight_decay,
-    max_grad_norm,
-    use_amp
+    max_grad_norm
 ):
     """
     Decide final model_name, train_dataset, val_dataset based on user dropdown selection
@@ -60,33 +62,30 @@ def update_config(
     else:
         final_val_dataset = val_dataset_choice
 
-    # steps_per_epoch
-    steps_per_epoch_val = None if steps_per_epoch == "" else int(steps_per_epoch)
-
     # Build config
     config = {
         "model_name": final_model_name,
         "train_dataset": final_train_dataset,
         "shuffle_train_data": shuffle_train_data,
         "val_dataset": final_val_dataset,
-        "batch_size": int(batch_size),
+        "train_batch_size": int(train_batch_size),
+        "eval_batch_size": int(eval_batch_size),
         "epochs": int(epochs),
-        "save_best_model": save_best_model,
-        "use_recommended_warmup": use_recommended_warmup,
         "warmup_steps": int(warmup_steps),
+        "warmup_ratio": float(warmup_ratio),
+        "evaluation_strategy": evaluation_strategies,
         "evaluation_steps": int(evaluation_steps),
         "optimizer_class": optimizer_class,
         "optimizer_params": {"lr": float(optimizer_params_lr)},
         "scheduler": scheduler,
-        "checkpoint_path": checkpoint_path,
         "checkpoint_save_steps": int(checkpoint_save_steps),
         "checkpoint_save_total_limit": int(checkpoint_save_total_limit),
-        "show_progress_bar": show_progress_bar,
+        "logging_strategy": logging_strategies,
+        "logging_steps": int(logging_steps),
         "output_path": output_path,
-        "steps_per_epoch": steps_per_epoch_val,
+        "max_steps": int(max_steps) if max_steps else -1,
         "weight_decay": float(weight_decay),
-        "max_grad_norm": float(max_grad_norm),
-        "use_amp": use_amp
+        "max_grad_norm": float(max_grad_norm)
     }
 
     # Write to config.json
@@ -95,74 +94,116 @@ def update_config(
 
     return "Configuration updated successfully!"
 
-interface = gr.Interface(
-    fn=update_config,
-    inputs=[
-        # Model
-        gr.Dropdown(
-            label="Model Name (Dropdown)",
-            choices=model_dropdown_options,
-            value="gte-small"
-        ),
-        gr.Textbox(
-            label="Custom Model Path (if 'Custom' is selected)",
-            value="",
-            placeholder="Enter your custom model name/path"
-        ),
+def train_model():
+    train_main()
+    return "Training completed successfully!"
 
-        # Training dataset
-        gr.Dropdown(
-            label="Train Dataset (Dropdown)",
-            choices=train_dataset_options,
-            value="./dataset/train_dataset.json"
-        ),
-        gr.Textbox(
-            label="Custom Train Dataset Path (if 'Custom' is selected)",
-            value="./dataset/train_dataset.json",
-            placeholder="Enter your custom train dataset path"
-        ),
-        gr.Checkbox(label="Shuffle Train Data", value=True),
+def build_ui():
+    with gr.Blocks() as demo:
+        gr.Markdown("# Sentence Transformer Trainer")
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### Configuration")
 
-        # Validation dataset
-        gr.Dropdown(
-            label="Val Dataset (Dropdown)",
-            choices=val_dataset_options,
-            value="./dataset/val_dataset.json"
-        ),
-        gr.Textbox(
-            label="Custom Val Dataset Path (if 'Custom' is selected)",
-            value="./dataset/val_dataset.json",
-            placeholder="Enter your custom val dataset path"
-        ),
+                model_dropdown = gr.Dropdown(
+                    label="Model Name (Dropdown)",
+                    choices=model_dropdown_options,
+                    value="gte-small"
+                )
+                model_custom_text = gr.Textbox(
+                    label="Custom Model Path (if 'Custom' is selected)",
+                    value="",
+                    placeholder="Enter your custom model name/path"
+                )
 
-        # Other training params
-        gr.Number(label="Batch Size", value=64),
-        gr.Number(label="Epochs", value=1),
-        gr.Checkbox(label="Save Best Model", value=True),
-        gr.Checkbox(label="Use Recommended Warmup Steps", value=True),
-        gr.Number(label="Warmup Steps (fallback value)", value=10000),
-        gr.Number(label="Evaluation Steps", value=1000),
-        gr.Dropdown(label="Optimizer Class", choices=["Adam", "AdamW", "SGD"], value="AdamW"),
-        gr.Textbox(label="Optimizer Params (LR)", value="5e-5"),
-        gr.Dropdown(
-            label="Scheduler",
-            choices=["constantlr", "warmupconstant", "warmuplinear", "warmupcosine", "warmupcosinewithhardrestarts"],
-            value="warmuplinear"
-        ),
-        gr.Textbox(label="Checkpoint Path", value="./checkpointpath"),
-        gr.Number(label="Checkpoint Save Steps", value=100),
-        gr.Number(label="Checkpoint Save Total Limit", value=5),
-        gr.Checkbox(label="Show Progress Bar", value=True),
-        gr.Textbox(label="Output Path", value="./outputpath"),
-        gr.Textbox(label="Steps Per Epoch (leave blank for default)", placeholder="None"),
-        gr.Number(label="Weight Decay", value=0.0),
-        gr.Number(label="Max Grad Norm", value=1.0),
-        gr.Checkbox(label="Use AMP", value=False)
-    ],
-    outputs="text",
-    title="Retrieval Model Trainer",
-    description="Select or enter custom paths for your model and datasets, and tweak training parameters. (Bi-encoders only now)"
-)
+                # Training dataset
+                train_dropdown = gr.Dropdown(
+                    label="Train Dataset (Dropdown)",
+                    choices=train_dataset_options,
+                    value="./dataset/train_dataset.json"
+                )
+                train_custom_text = gr.Textbox(
+                    label="Custom Train Dataset Path (if 'Custom' is selected)",
+                    value="./dataset/train_dataset.json",
+                    placeholder="Enter your custom train dataset path"
+                )
+                shuffle_data = gr.Checkbox(label="Shuffle Train Data", value=True)
+
+                # Validation dataset
+                val_dropdown = gr.Dropdown(
+                    label="Val Dataset (Dropdown)",
+                    choices=val_dataset_options,
+                    value="./dataset/val_dataset.json"
+                )
+                val_custom_text = gr.Textbox(
+                    label="Custom Val Dataset Path (if 'Custom' is selected)",
+                    value="./dataset/val_dataset.json",
+                    placeholder="Enter your custom val dataset path"
+                )
+
+                # Other training params
+                train_batch_size = gr.Number(label="Train Batch Size", value=64)
+                eval_batch_size = gr.Number(label="Evaluation Batch Size", value=64)
+                epochs = gr.Number(label="Epochs", value=1)
+                warmup_steps = gr.Number(label="Warmup Steps (Overrides any effect of warmup_ratio, set it to -1 of not using)", value=-1)
+                Warmup_ratio = gr.Number(label="Warmup Ratio", value=0.1)
+                evaluation_strategies = gr.Dropdown(
+                    label="Evaluation Strategies",
+                    choices=["no", "steps", "epochs"],
+                    value="steps"
+                )
+                evaluation_steps = gr.Number(label="Evaluation Steps", value=1000)
+                optimizer_class = gr.Dropdown(label="Optimizers", 
+                                              choices=["adamw_hf", "adamw_torch", "adamw_torch_fused", 
+                                                       "adamw_apex_fused", "adamw_anyprecision", "adafactor"], 
+                                              value="adamw_torch")
+                optimizer_params_lr = gr.Textbox(label="Optimizer Params (LR)", value="5e-5")
+                scheduler = gr.Dropdown(
+                    label="Scheduler type",
+                    choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup", 
+                             "inverse_sqrt", "reduce_lr_on_plateau", "cosine_with_min_lr", "warmup_stable_decay"],
+                    value="linear"
+                )
+                checkpoint_save_steps = gr.Number(label="Checkpoint Save Steps", value=100)
+                checkpoint_save_total_limit = gr.Number(label="Checkpoint Save Total Limit", value=5)
+                logging_strategies = gr.Dropdown(label="Logging Strategy", choices=["no", "steps", "epochs"], value="steps")
+                logging_steps = gr.Number(label="Logging Steps", value=100)
+                output_path = gr.Textbox(label="Output Path", value="./outputpath")
+                max_steps = gr.Textbox(label="Max Steps", placeholder=-1)
+                weight_decay = gr.Number(label="Weight Decay", value=0.0)
+                max_grad_norm = gr.Number(label="Max Grad Norm", value=1.0)
+
+                update_button = gr.Button("Update Config")
+                update_status = gr.Textbox(label="Config Status", interactive=False)
+
+            with gr.Column():
+                gr.Markdown("### Training")
+                train_button = gr.Button("Train Model")
+                train_status = gr.Textbox(label="Training Status", interactive=False)
+
+        # Connect button clicks to functions
+        update_button.click(
+            fn=update_config,
+            inputs=[
+                model_dropdown, model_custom_text,
+                train_dropdown, train_custom_text, shuffle_data,
+                val_dropdown, val_custom_text,
+                train_batch_size, eval_batch_size, epochs,
+                warmup_steps, Warmup_ratio, evaluation_strategies, evaluation_steps, optimizer_class, optimizer_params_lr,
+                scheduler, checkpoint_save_steps, checkpoint_save_total_limit, logging_strategies, logging_steps,
+                output_path, max_steps, weight_decay, max_grad_norm
+            ],
+            outputs=[update_status]
+        )
+
+        train_button.click(
+            fn=train_model,
+            inputs=[],
+            outputs=[train_status]
+        )
+
+    return demo
 
 if __name__ == "__main__":
-    interface.launch()
+    demo_app = build_ui()
+    demo_app.launch()
