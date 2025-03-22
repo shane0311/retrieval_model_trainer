@@ -39,11 +39,6 @@ def update_config(
     weight_decay,
     max_grad_norm
 ):
-    """
-    Decide final model_name, train_dataset, val_dataset based on user dropdown selection
-    and custom text input. If the dropdown is 'Custom', we read the custom textbox.
-    Otherwise, we use the dropdown value.
-    """
     # Model name
     if model_name_choice == "Custom":
         final_model_name = model_name_custom.strip()
